@@ -1,22 +1,20 @@
 document.addEventListener('DOMContentLoaded', function () {
-    // Получаем ссылку на элемент редактора кода
     const codeEditor = document.getElementById('codeEditor');
-
-    // Интервал для автонабора
     let typeInterval;
-
-    // Глобальный счетчик строк для непрерывной нумерации
     let globalLineCounter = 1;
+    const fileName = 'user.c';
 
-    // УКАЖИТЕ ИМЯ ФАЙЛА ЗДЕСЬ
-    const fileName = 'main.c';
+    // Regex for C-like keywords.
+    const cKeywords = [
+        'auto', 'break', 'case', 'char', 'const', 'continue', 'default',
+        'do', 'double', 'else', 'enum', 'extern', 'float', 'for', 'goto',
+        'if', 'int', 'long', 'register', 'return', 'short', 'signed',
+        'sizeof', 'static', 'struct', 'switch', 'typedef', 'union',
+        'unsigned', 'void', 'volatile', 'while'
+    ].join('|');
+    const keywordRegex = new RegExp(`\\b(${cKeywords})\\b`, 'g');
 
-    /**
-     * Функция для экранирования HTML-символов
-     * Преобразует специальные символы в HTML-сущности
-     * @param {string} text - Текст для экранирования
-     * @returns {string} Экранированный текст
-     */
+    // Helper function to escape HTML characters.
     function escapeHtml(text) {
         return text
             .replace(/&/g, '&amp;')
@@ -27,197 +25,195 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     /**
-     * Функция для подсветки синтаксиса C кода
-     * Обрабатывает директивы препроцессора, комментарии и строки
-     * @param {string} line - Строка кода для подсветки
-     * @param {boolean} isInComment - Флаг нахождения внутри многострочного комментария
-     * @returns {Object} Объект с HTML-кодом и состоянием комментария
+     * Main function for C syntax highlighting.
+     * This version uses a linear, stateful parser for improved accuracy and robustness.
+     * @param {string} line - The line of code to highlight.
+     * @param {boolean} isInMultiLineComment - Flag for being inside a multi-line comment.
+     * @returns {Object} An object with the highlighted HTML and the new comment state.
      */
-    function highlightLine(line, isInComment = false) {
-        let escapedLine = escapeHtml(line);
-        let newCommentState = isInComment;
-        let result = escapedLine;
+    function highlightLine(line, isInMultiLineComment) {
+        let inCommentState = isInMultiLineComment;
+        let content = '';
+        const escapedLine = escapeHtml(line);
+        let i = 0;
 
-        // Обработка директив препроцессора (только для полных строк)
-        if (line.trim().startsWith('#') && !isInComment) {
-            result = '<span class="preprocessor">' + escapedLine + '</span>';
-            return { html: result, inComment: false };
+        // Handle preprocessor directives first, as they apply to the whole line.
+        if (!inCommentState && escapedLine.trim().startsWith('#')) {
+            return {
+                html: `<span class="preprocessor">${escapedLine}</span>`,
+                inComment: false
+            };
         }
 
-        // Обработка многострочных комментариев
-        if (isInComment) {
-            // Уже находимся внутри многострочного комментария
-            const endIndex = line.indexOf('*/');
-            if (endIndex !== -1) {
-                // Найден конец комментария на этой строке
-                // Берем ВСЮ часть от начала строки до конца комментария ВКЛЮЧАЯ */
-                const commentedPart = escapeHtml(line.substring(0, endIndex + 2));
-                // Код после комментария (если есть)
-                const remainingPart = escapeHtml(line.substring(endIndex + 2));
-                result = '<span class="comment">' + commentedPart + '</span>' + remainingPart;
-                newCommentState = false; // Выходим из режима комментария
-            } else {
-                // Конец комментария не найден - вся строка это комментарий
-                result = '<span class="comment">' + escapedLine + '</span>';
-            }
-        } else {
-            // Не внутри комментария - ищем начало новых комментариев
-
-            // Сначала проверяем однострочные комментарии //
-            const singleLineCommentIndex = line.indexOf('//');
-            if (singleLineCommentIndex !== -1) {
-                const codePart = escapeHtml(line.substring(0, singleLineCommentIndex));
-                const commentPart = escapeHtml(line.substring(singleLineCommentIndex));
-                result = codePart + '<span class="comment">' + commentPart + '</span>';
-            } else {
-                // Если нет однострочного комментария, ищем многострочные /* */
-                const multiLineStartIndex = line.indexOf('/*');
-                if (multiLineStartIndex !== -1) {
-                    const codeBefore = escapeHtml(line.substring(0, multiLineStartIndex));
-                    const commentSearch = line.substring(multiLineStartIndex);
-                    const endIndex = commentSearch.indexOf('*/');
-
-                    if (endIndex !== -1) {
-                        // Комментарий начинается и заканчивается на этой строке
-                        // Берем часть от /* до */ ВКЛЮЧАЯ оба символа */
-                        const commentPart = escapeHtml(commentSearch.substring(0, endIndex + 2));
-                        const codeAfter = escapeHtml(commentSearch.substring(endIndex + 2));
-                        result = codeBefore + '<span class="comment">' + commentPart + '</span>' + codeAfter;
-                    } else {
-                        // Комментарий начинается на этой строке, но не заканчивается
-                        const commentPart = escapeHtml(commentSearch);
-                        result = codeBefore + '<span class="comment">' + commentPart + '</span>';
-                        newCommentState = true; // Входим в режим комментария
-                    }
+        while (i < escapedLine.length) {
+            if (inCommentState) {
+                const endCommentIndex = escapedLine.indexOf('*/', i);
+                if (endCommentIndex !== -1) {
+                    const commentPart = escapedLine.substring(i, endCommentIndex + 2);
+                    content += `<span class="comment">${commentPart}</span>`;
+                    inCommentState = false;
+                    i = endCommentIndex + 2;
                 } else {
-                    // Дополнительная проверка: если строка начинается с */ (неожиданное закрытие)
-                    const endCommentIndex = line.indexOf('*/');
-                    if (endCommentIndex !== -1) {
-                        // Обрабатываем */ как комментарий (на случай ошибок в коде)
-                        const commentPart = escapeHtml(line.substring(0, endCommentIndex + 2));
-                        const remainingPart = escapeHtml(line.substring(endCommentIndex + 2));
-                        result = '<span class="comment">' + commentPart + '</span>' + remainingPart;
+                    const commentPart = escapedLine.substring(i);
+                    content += `<span class="comment">${commentPart}</span>`;
+                    break;
+                }
+            } else {
+                const singleLineCommentIndex = escapedLine.indexOf('//', i);
+                const multiCommentStartIndex = escapedLine.indexOf('/*', i);
+                const stringStartIndex = escapedLine.indexOf('&quot;', i);
+
+                // Determine the next token to process.
+                let firstTokenIndex = -1;
+                const indices = [singleLineCommentIndex, multiCommentStartIndex, stringStartIndex].filter(idx => idx !== -1);
+                if (indices.length > 0) {
+                    firstTokenIndex = Math.min(...indices);
+                }
+
+                // If no special tokens are left, process the rest of the line for keywords.
+                if (firstTokenIndex === -1) {
+                    let restOfLine = escapedLine.substring(i);
+                    restOfLine = restOfLine.replace(keywordRegex, '<span class="keyword">$1</span>');
+                    content += restOfLine;
+                    break;
+                }
+
+                // Process the code before the token.
+                let codePart = escapedLine.substring(i, firstTokenIndex);
+                codePart = codePart.replace(keywordRegex, '<span class="keyword">$1</span>');
+                content += codePart;
+                i = firstTokenIndex;
+
+                // Handle the token itself.
+                if (i === stringStartIndex) {
+                    const endStringIndex = escapedLine.indexOf('&quot;', i + 6);
+                    if (endStringIndex !== -1) {
+                        const stringPart = escapedLine.substring(i, endStringIndex + 6);
+                        content += `<span class="string">${stringPart}</span>`;
+                        i = endStringIndex + 6;
                     } else {
-                        // Нет комментариев в этой строке
-                        result = escapedLine;
+                        const stringPart = escapedLine.substring(i);
+                        content += `<span class="string">${stringPart}</span>`;
+                        break;
                     }
+                } else if (i === multiCommentStartIndex) {
+                    inCommentState = true;
+                    // The loop will handle the comment content in the next iteration.
+                } else if (i === singleLineCommentIndex) {
+                    const commentPart = escapedLine.substring(i);
+                    content += `<span class="comment">${commentPart}</span>`;
+                    break;
                 }
             }
         }
 
-        return { html: result, inComment: newCommentState };
+        return { html: content, inComment: inCommentState };
     }
 
+
     /**
-     * Основная функция автонабора кода
-     * @param {string} content - Содержимое файла для автонабора
+     * Main function for the autotyping effect.
+     * @param {string} content - The file content to autotype.
      */
     function startAutotyping(content) {
-        // Если файл не загружен, используем пример кода
         if (!content) {
             content = [
                 "/*",
-                " * Многострочный комментарий",
-                " * который занимает несколько строк",
+                " * Multi-line comment",
+                " * spanning multiple lines.",
                 " */",
                 "#include <stdio.h>",
-                "#include <stdlib.h>",
-                "#include <string.h>",
                 "",
-                "// Однострочный комментарий",
+                "// Single-line comment",
                 "int main() {",
-                "    printf(\"Hello, World!\\n\"); /* встроенный комментарий */",
+                "    // Using keywords like 'int' and 'return'",
+                "    printf(\"Hello, World!\\n\"); /* inline comment */",
                 "    return 0;",
                 "}"
             ].join('\n');
         }
 
-        // Очищаем редактор
         codeEditor.innerHTML = '';
-
-        // Разбиваем содержимое на строки
+        globalLineCounter = 1;
         const sourceCode = content.split('\n');
+        let currentLineIndex = 0;
+        let currentCharIndex = 0;
+        const maxLines = Math.floor(926 / 19); // Example value, adjust as needed
+        let inMultiLineComment = false;
 
-        // Текущая строка и символ
-        let currentLine = 0;
-        let currentChar = 0;
-
-        // Максимальное количество видимых строк
-        const maxLines = Math.floor(926 / 19);
-
-        // Флаг нахождения внутри многострочного комментария
-        let inComment = false;
-
-        /**
-         * Функция добавления одного символа
-         */
         function addChar() {
-            // Если весь код набран, перезапускаем через 2 секунды
-            if (currentLine >= sourceCode.length) {
+            if (currentLineIndex >= sourceCode.length) {
                 clearInterval(typeInterval);
-                setTimeout(() => {
-                    globalLineCounter = 1; // Сбрасываем счетчик при перезапуске
-                    startAutotyping(content);
-                }, 2000);
+                setTimeout(() => startAutotyping(content), 2000);
                 return;
             }
 
-            // Если начинаем новую строку
-            if (currentChar === 0) {
-                const lineElement = document.createElement('div');
-                lineElement.className = 'code-line';
+            const currentLineText = sourceCode[currentLineIndex];
+            let currentLineElement;
 
-                // Добавляем номер строки
+            // Create the line element only once per line.
+            if (currentCharIndex === 0) {
+                const lineContainer = document.createElement('div');
+                lineContainer.className = 'code-line';
+
                 const lineNumber = document.createElement('span');
                 lineNumber.className = 'line-number';
                 lineNumber.textContent = globalLineCounter++;
-                lineElement.appendChild(lineNumber);
 
-                // Контейнер для кода
                 const codeContent = document.createElement('span');
                 codeContent.className = 'code-content';
-                lineElement.appendChild(codeContent);
 
-                codeEditor.appendChild(lineElement);
+                const cursor = document.createElement('span');
+                cursor.className = 'cursor';
 
-                // Удаляем первую строку если достигли максимума
+                lineContainer.appendChild(lineNumber);
+                lineContainer.appendChild(codeContent);
+                lineContainer.appendChild(cursor);
+                codeEditor.appendChild(lineContainer);
+
                 if (codeEditor.children.length > maxLines) {
                     codeEditor.removeChild(codeEditor.firstChild);
                 }
             }
 
-            const currentText = sourceCode[currentLine];
-            const currentLineElement = codeEditor.lastChild;
-            const codeContent = currentLineElement.querySelector('.code-content');
+            currentLineElement = codeEditor.lastChild;
+            const codeContentElement = currentLineElement.querySelector('.code-content');
+            const cursorElement = currentLineElement.querySelector('.cursor');
 
-            // Добавляем символы по одному
-            if (currentChar < currentText.length) {
-                const newText = currentText.substring(0, currentChar + 1);
-                const highlighted = highlightLine(newText, inComment);
-                inComment = highlighted.inComment;
-
-                codeContent.innerHTML = highlighted.html + '<span class="cursor"></span>';
-                currentChar++;
+            if (currentCharIndex < currentLineText.length) {
+                const textToShow = currentLineText.substring(0, currentCharIndex + 1);
+                const result = highlightLine(textToShow, inMultiLineComment);
+                // The inComment state is only finalized at the end of the line,
+                // so we don't update the global state until then.
+                codeContentElement.innerHTML = result.html;
+                currentCharIndex++;
             } else {
-                // Завершаем текущую строку
-                const highlighted = highlightLine(currentText, inComment);
-                inComment = highlighted.inComment;
-                codeContent.innerHTML = highlighted.html;
-
-                // Переходим к следующей строке
-                currentLine++;
-                currentChar = 0;
+                const result = highlightLine(currentLineText, inMultiLineComment);
+                codeContentElement.innerHTML = result.html;
+                inMultiLineComment = result.inComment; // Finalize state for the next line.
+                // Remove cursor at the end of the line
+                if (cursorElement) {
+                    cursorElement.remove();
+                }
+                currentLineIndex++;
+                currentCharIndex = 0;
             }
         }
 
-        // Запускаем автонабор с интервалом 50ms
         clearInterval(typeInterval);
-        typeInterval = setInterval(addChar, 50);
+        typeInterval = setInterval(addChar, 10);
     }
 
-    // Пробуем загрузить файл
     fetch(fileName)
-        .then(response => response.ok ? response.text() : Promise.reject())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('File not found');
+            }
+            return response.text();
+        })
         .then(content => startAutotyping(content))
-        .catch(() => startAutotyping());
+        .catch(() => {
+            console.warn(`'${fileName}' not found. Using default code snippet.`);
+            startAutotyping(); // Fallback to default content
+        });
 });

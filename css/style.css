@@ -75,18 +75,7 @@ body {
     }
 }
 
-.preprocessor {
-    color: #9b9b9b;
-}
-
-.comment {
-    color: #6a9955;
-}
-
-.string {
-    color: #ce9178;
-}
-
-.keyword {
-    color: #569cd6;
-}
+.string { color: #ce9178 !important; }
+.keyword { color: #569cd6 !important; }
+.preprocessor { color: #9b9b9b !important; }
+.comment { color: #6a9955 !important; }
