@@ -6,9 +6,9 @@
 
 body {
     font-family: 'Consolas', 'Monaco', monospace;
-    /* background-image: url("../img/bgrnd.png");
-    backdrop-filter: invert(100%) hue-rotate(90deg);
-    background-size: contain; */
+    background-image: url("../img/background.jpg");
+    /* backdrop-filter: invert(100%) hue-rotate(90deg); */
+    /* background-size: contain; */
     background-color: #270527;
     color: #d4d4d4;
     display: flex;
