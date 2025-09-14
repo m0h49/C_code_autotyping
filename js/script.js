@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const codeEditor = document.getElementById('codeEditor');
     let typeInterval;
     let globalLineCounter = 1;
-    const fileName = 'user.c';
+    const fileName = 'main.c';
 
     // Regex for C-like keywords.
     const cKeywords = [
@@ -201,7 +201,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         clearInterval(typeInterval);
-        typeInterval = setInterval(addChar, 10);
+        typeInterval = setInterval(addChar, 50);
     }
 
     fetch(fileName)
